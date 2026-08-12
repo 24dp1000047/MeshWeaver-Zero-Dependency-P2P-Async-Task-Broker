@@ -21,4 +21,16 @@ def to_dict(self) -> Dict[str, Any]:
             ram_percent=float(data["ram_percent"]),
             timestamp=float(data["timestamp"])
         )
-  
+  class ResourceMonitor:
+    def __init__(self, node_id: str):
+        self.node_id = node_id
+
+    def collect_metrics(self) -> ResourceStatus:
+        cpu = psutil.cpu_percent(interval=None)
+        ram = psutil.virtual_memory().percent
+        return ResourceStatus(
+            node_id=self.node_id,
+            cpu_percent=cpu,
+            ram_percent=ram,
+            timestamp=time.time()
+        )
