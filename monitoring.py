@@ -1,4 +1,5 @@
 import time
+import psutil
 from dataclasses import dataclass, asdict
 from typing import Dict, Any
 
@@ -9,7 +10,7 @@ class ResourceStatus:
     ram_percent: float
     timestamp: float
 
-def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
     @classmethod
@@ -20,7 +21,9 @@ def to_dict(self) -> Dict[str, Any]:
             ram_percent=float(data["ram_percent"]),
             timestamp=float(data["timestamp"])
         )
-  class ResourceMonitor:
+
+
+class ResourceMonitor:
     def __init__(self, node_id: str):
         self.node_id = node_id
 
