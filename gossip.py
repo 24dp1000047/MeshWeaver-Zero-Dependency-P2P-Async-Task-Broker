@@ -1,23 +1,10 @@
-from typing import Dict, Any
-from meshweaver.monitoring import ResourceStatus
-
-class GossipMessageBuilder:
-    """
-    Defines network message formats for resource updates.
-    """
-    @staticmethod
-    def build_resource_message(status: ResourceStatus) -> Dict[str, Any]:
-        return {
-            "message_type": "GOSSIP_RESOURCE_METRICS",
-            "sender_id": status.node_id,
-            "payload": status.to_dict()
-        } 
 import asyncio
 import logging
 from typing import Dict, Any, Optional
 from meshweaver.monitoring import ResourceStatus, ResourceMonitor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 
 class GossipMessageBuilder:
     """
@@ -30,6 +17,7 @@ class GossipMessageBuilder:
             "sender_id": status.node_id,
             "payload": status.to_dict()
         }
+
 
 class BackgroundMonitorLoop:
     """
