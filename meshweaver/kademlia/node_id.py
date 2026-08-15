@@ -5,6 +5,13 @@ A Kademlia node ID is a 256-bit (32-byte) value derived deterministically
 from a seed string (e.g., "host:port") using SHA-256.  The ID is stored as
 a plain Python bytes object so it can be compared, XOR'd, and serialised
 without extra dependencies.
+
+Public API
+----------
+- generate_node_id(seed)  — produce a 32-byte ID from a seed string
+- node_id_to_hex(node_id) — format a node ID as a 64-char hex string
+- node_id_from_hex(hex_str) — parse a hex string back to raw bytes
+- xor_distance(a, b)      — Kademlia XOR metric between two node IDs
 """
 
 import hashlib
@@ -112,3 +119,49 @@ def node_id_from_hex(hex_str: str) -> bytes:
             f"hex_str must decode to {ID_BYTES} bytes, got {len(raw)}"
         )
     return raw
+
+
+def xor_distance(a: bytes, b: bytes) -> int:
+    """Return the XOR distance between two node IDs as a non-negative integer.
+
+    The XOR metric is the foundation of the Kademlia routing algorithm:
+    it is symmetric, obeys the triangle inequality, and places each node
+    in exactly one subtree at every level of the binary trie.
+
+    Parameters
+    ----------
+    a:
+        A 32-byte node ID produced by :func:`generate_node_id`.
+    b:
+        A 32-byte node ID produced by :func:`generate_node_id`.
+
+    Returns
+    -------
+    int
+        A non-negative integer in the range ``[0, 2**256)``.  A value of
+        ``0`` means both IDs are identical.
+
+    Raises
+    ------
+    ValueError
+        If either *a* or *b* is not exactly :data:`ID_BYTES` bytes long.
+
+    Examples
+    --------
+    >>> nid_a = generate_node_id("127.0.0.1:5000")
+    >>> nid_b = generate_node_id("127.0.0.1:5001")
+    >>> d = xor_distance(nid_a, nid_b)
+    >>> isinstance(d, int) and d >= 0
+    True
+    >>> xor_distance(nid_a, nid_a)  # distance to itself is always 0
+    0
+    """
+    if len(a) != ID_BYTES:
+        raise ValueError(
+            f"node ID 'a' must be {ID_BYTES} bytes, got {len(a)}"
+        )
+    if len(b) != ID_BYTES:
+        raise ValueError(
+            f"node ID 'b' must be {ID_BYTES} bytes, got {len(b)}"
+        )
+    return int.from_bytes(a, "big") ^ int.from_bytes(b, "big")
