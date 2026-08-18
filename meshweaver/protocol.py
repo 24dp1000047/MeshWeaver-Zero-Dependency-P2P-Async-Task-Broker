@@ -12,6 +12,5 @@ def encode_message(message):
     return json.dumps(message).encode("utf-8")
 
 
-
 def decode_message(data):
     return json.loads(data.decode("utf-8"))

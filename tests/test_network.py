@@ -2,6 +2,7 @@ import asyncio
 
 from meshweaver.node import Node
 from meshweaver.network import NetworkProtocol
+from meshweaver.protocol import create_message, encode_message
 
 
 async def main():
@@ -20,12 +21,10 @@ async def main():
         local_addr=(node2.host, node2.port)
     )
 
-    message = {
-        "type": "PING",
-        "sender_id": node1.node_id
-    }
-
-    from meshweaver.protocol import encode_message
+    message = create_message(
+        "PING",
+        node1.node_id
+    )
 
     transport1.sendto(
         encode_message(message),

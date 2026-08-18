@@ -8,6 +8,8 @@ class NetworkProtocol(asyncio.DatagramProtocol):
     def __init__(self, node):
         self.node = node
         self.transport = None
+        self.received_messages = []
+
 
     def connection_made(self, transport):
         self.transport = transport
