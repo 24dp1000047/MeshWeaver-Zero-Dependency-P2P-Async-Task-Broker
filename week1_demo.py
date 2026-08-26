@@ -1,15 +1,24 @@
 import asyncio
+from meshweaver.monitoring import ResourceMonitor
 from meshweaver.gossip import BackgroundMonitorLoop
 
-async def run_week1_demo():
-    print("=== MeshWeaver Week 1 Monitoring Demo ===")
-    monitor_loop = BackgroundMonitorLoop(node_id="Node-Sahil-01", interval=1.5)
-    task = asyncio.create_task(monitor_loop.start())
+
+def print_metrics(status):
+    print(f"[{status.node_id}] CPU: {status.cpu_percent}% | RAM: {status.ram_percent}%")
+
+
+async def main():
+    monitor = ResourceMonitor("node-demo-01")
+    loop = BackgroundMonitorLoop(monitor, interval=2.0)
     
-    await asyncio.sleep(5.0)
+    print("Starting local resource monitoring demo (Ctrl+C to stop)...")
     
-    monitor_loop.stop()
-    task.cancel()
+    try:
+        await loop.start(callback=print_metrics)
+    except KeyboardInterrupt:
+        loop.stop()
+        print("\nMonitoring stopped.")
+
 
 if __name__ == "__main__":
-    asyncio.run(run_week1_demo())
+    asyncio.run(main())
