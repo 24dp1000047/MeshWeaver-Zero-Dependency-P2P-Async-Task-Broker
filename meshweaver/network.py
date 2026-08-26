@@ -18,6 +18,10 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         self.transport = None
         self.pending_requests = {}
 
+    # =====================================================
+    # CONNECTION
+    # =====================================================
+
     def connection_made(self, transport):
         self.transport = transport
 
@@ -26,9 +30,14 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             f"{self.node.host}:{self.node.port}"
         )
 
+    # =====================================================
+    # INCOMING DATAGRAM
+    # =====================================================
+
     def datagram_received(self, data, addr):
         try:
             message = decode_message(data)
+
         except Exception as exc:
             print(f"Invalid message received: {exc}")
             return
@@ -41,10 +50,12 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         request_id = message.get("request_id")
 
         # -------------------------------------------------
-        # Check whether this is a response to one of our
-        # pending requests.
+        # Check whether this message is a response to one
+        # of our pending requests.
         # -------------------------------------------------
+
         if request_id in self.pending_requests:
+
             future = self.pending_requests.pop(request_id)
 
             if not future.done():
@@ -53,9 +64,14 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             return
 
         # -------------------------------------------------
-        # Otherwise dispatch the incoming message.
+        # Otherwise, handle it as a new incoming message.
         # -------------------------------------------------
+
         self.dispatch_message(message, addr)
+
+    # =====================================================
+    # MESSAGE DISPATCH
+    # =====================================================
 
     def dispatch_message(self, message, addr):
         message_type = message.get("type")
@@ -107,18 +123,19 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         )
 
     # =====================================================
-    # TASK ROUTING
+    # TASK ROUTING REQUEST
     # =====================================================
 
     def handle_task_route_request(self, message, addr):
         """
         Handle an incoming TASK_ROUTE_REQUEST.
 
-        For now this method only validates and displays
-        the routing information.
+        The routing metadata is extracted from the request
+        and returned to the requesting node in a
+        ROUTE_CANDIDATE_RESPONSE.
 
-        Actual node selection will be provided by the
-        node-selection module.
+        The same request_id is preserved so that the sender
+        can correlate the response with its original request.
         """
 
         payload = message.get("payload", {})
@@ -129,8 +146,11 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         cpu_load = payload.get("cpu_load")
         timestamp = payload.get("timestamp")
 
+        request_id = message.get("request_id")
+
         print(
-            f"{self.node.node_id} received TASK_ROUTE_REQUEST:"
+            f"{self.node.node_id} received "
+            f"TASK_ROUTE_REQUEST:"
         )
 
         print(f"  task_id: {task_id}")
@@ -138,29 +158,63 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         print(f"  candidate_node: {candidate_node}")
         print(f"  cpu_load: {cpu_load}")
         print(f"  timestamp: {timestamp}")
+        print(f"  request_id: {request_id}")
 
-        # Candidate selection is handled separately.
-        # This keeps the networking layer reusable.
+        # -------------------------------------------------
+        # Create candidate-node response.
+        # -------------------------------------------------
+
+        response = create_message(
+            ROUTE_CANDIDATE_RESPONSE,
+            self.node.node_id,
+            request_id=request_id,
+            payload={
+                "task_id": task_id,
+                "source_node": source_node,
+                "candidate_node": candidate_node,
+                "cpu_load": cpu_load,
+                "timestamp": timestamp,
+            }
+        )
+
+        # -------------------------------------------------
+        # Send response back to requesting node.
+        # -------------------------------------------------
+
+        self.transport.sendto(
+            encode_message(response),
+            addr
+        )
+
+        print(
+            f"{self.node.node_id} sent "
+            f"ROUTE_CANDIDATE_RESPONSE to {addr} "
+            f"(request_id={request_id})"
+        )
+
+    # =====================================================
+    # ROUTE CANDIDATE RESPONSE
+    # =====================================================
 
     def handle_route_candidate_response(self, message, addr):
         """
-        Handle a candidate-node response.
+        Handle a ROUTE_CANDIDATE_RESPONSE that does not
+        correspond to a currently pending request.
 
-        Normally the response will already be matched
-        with a pending request in datagram_received().
-        This method is kept for cases where the message
-        arrives without a matching pending request.
+        Normally, responses are handled automatically by
+        datagram_received() through pending_requests.
         """
 
         payload = message.get("payload", {})
 
         print(
             f"{self.node.node_id} received "
-            f"ROUTE_CANDIDATE_RESPONSE"
+            f"ROUTE_CANDIDATE_RESPONSE:"
         )
 
         print(
-            f"  task_id: {payload.get('task_id')}"
+            f"  task_id: "
+            f"{payload.get('task_id')}"
         )
 
         print(
@@ -173,6 +227,15 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             f"{payload.get('cpu_load')}"
         )
 
+        print(
+            f"  request_id: "
+            f"{message.get('request_id')}"
+        )
+
+    # =====================================================
+    # ROUTE DECISION
+    # =====================================================
+
     def handle_route_decision(self, message, addr):
         """
         Handle a routing decision message.
@@ -182,7 +245,7 @@ class NetworkProtocol(asyncio.DatagramProtocol):
 
         print(
             f"{self.node.node_id} received "
-            f"ROUTE_DECISION"
+            f"ROUTE_DECISION:"
         )
 
         print(
@@ -200,6 +263,11 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             f"{payload.get('cpu_load')}"
         )
 
+        print(
+            f"  request_id: "
+            f"{message.get('request_id')}"
+        )
+
     # =====================================================
     # GENERIC REQUEST / RESPONSE
     # =====================================================
@@ -214,8 +282,8 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         """
         Send a request and wait for its response.
 
-        payload is optional so existing Week 1–2 calls
-        continue to work.
+        payload is optional so the existing Week 1–2
+        request functionality remains compatible.
 
         Example:
 
@@ -227,7 +295,7 @@ class NetworkProtocol(asyncio.DatagramProtocol):
                     "source_node": "node-1",
                     "candidate_node": "node-2",
                     "cpu_load": 25.5,
-                    "timestamp": time.time()
+                    "timestamp": 1234567890
                 }
             )
         """
@@ -241,9 +309,14 @@ class NetworkProtocol(asyncio.DatagramProtocol):
         request_id = request["request_id"]
 
         loop = asyncio.get_running_loop()
+
         future = loop.create_future()
 
         self.pending_requests[request_id] = future
+
+        # -------------------------------------------------
+        # Send request
+        # -------------------------------------------------
 
         self.transport.sendto(
             encode_message(request),
@@ -256,7 +329,12 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             f"(request_id={request_id})"
         )
 
+        # -------------------------------------------------
+        # Wait for response
+        # -------------------------------------------------
+
         try:
+
             response = await asyncio.wait_for(
                 future,
                 timeout=timeout
@@ -265,6 +343,7 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             return response
 
         except asyncio.TimeoutError:
+
             self.pending_requests.pop(
                 request_id,
                 None
@@ -275,17 +354,27 @@ class NetworkProtocol(asyncio.DatagramProtocol):
             )
 
     # =====================================================
-    # ERROR / CONNECTION HANDLING
+    # NETWORK ERRORS
     # =====================================================
 
     def error_received(self, exc):
-        print(f"Network error: {exc}")
+        print(
+            f"Network error: {exc}"
+        )
+
+    # =====================================================
+    # CONNECTION LOST
+    # =====================================================
 
     def connection_lost(self, exc):
-        print("Connection closed")
+        print(
+            "Connection closed"
+        )
 
         for future in self.pending_requests.values():
+
             if not future.done():
+
                 future.set_exception(
                     ConnectionError(
                         "Network connection lost"
