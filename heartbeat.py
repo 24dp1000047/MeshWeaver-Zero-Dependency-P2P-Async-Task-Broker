@@ -82,3 +82,28 @@ class HeartbeatManager:
                 if current_state == NodeState.ALIVE:
                     self.peer_states[peer_id] = NodeState.SUSPECTED
                     logging.warning(f"[Week 3] Node [{peer_id}] marked SUSPECTED (Missed heartbeats for {elapsed:.1f}s).")
+
+async def start_heartbeat_loop(self):
+        self._is_running = True
+        logging.info(f"[Week 3] Started Heartbeat Monitor for [{self.node_id}]")
+
+        while self._is_running:
+            try:
+                hb_message = {
+                    "message_type": "HEARTBEAT_PING",
+                    "sender_id": self.node_id,
+                    "timestamp": time.time()
+                }
+                if self.network_send_cb:
+                    self.network_send_cb(hb_message)
+
+                self.check_node_health()
+
+            except Exception as e:
+                logging.error(f"Error in heartbeat loop: {e}")
+
+            await asyncio.sleep(self.heartbeat_interval)
+
+    def stop(self):
+        self._is_running = False
+        logging.info(f"[Week 3] Stopped Heartbeat Monitor for [{self.node_id}]")
