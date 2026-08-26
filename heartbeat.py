@@ -43,4 +43,42 @@ class HeartbeatManager:
         self.network_send_cb = callback
 
     def register_offline_callback(self, callback: Callable[[str], None]):
-        self.on_node_offline_callbacks.append(callback)
+        self.on_node_offline_callbacks.append(callback)  
+        def process_incoming_heartbeat(self, message: dict):
+        """Receives heartbeat ping from peer node and updates timestamp."""
+        if message.get("message_type") != "HEARTBEAT_PING":
+            return
+
+        sender_id = message.get("sender_id")
+        if not sender_id or sender_id == self.node_id:
+            return
+
+        current_time = time.time()
+        self.last_seen[sender_id] = current_time
+        
+        prev_state = self.peer_states.get(sender_id)
+        self.peer_states[sender_id] = NodeState.ALIVE
+        
+        if prev_state and prev_state != NodeState.ALIVE:
+            logging.info(f"[Week 3] Node [{sender_id}] recovered back to ALIVE.")
+
+    def check_node_health(self):
+        """Audits status of all peers based on missed heartbeats."""
+        current_time = time.time()
+        
+        for peer_id, last_ts in list(self.last_seen.items()):
+            elapsed = current_time - last_ts
+            current_state = self.peer_states.get(peer_id, NodeState.ALIVE)
+
+            if elapsed >= self.offline_timeout:
+                if current_state != NodeState.OFFLINE:
+                    self.peer_states[peer_id] = NodeState.OFFLINE
+                    logging.error(f"[Week 3] Node [{peer_id}] marked OFFLINE (No heartbeat for {elapsed:.1f}s).")
+                    
+                    for cb in self.on_node_offline_callbacks:
+                        cb(peer_id)
+
+            elif elapsed >= self.suspect_timeout:
+                if current_state == NodeState.ALIVE:
+                    self.peer_states[peer_id] = NodeState.SUSPECTED
+                    logging.warning(f"[Week 3] Node [{peer_id}] marked SUSPECTED (Missed heartbeats for {elapsed:.1f}s).")
