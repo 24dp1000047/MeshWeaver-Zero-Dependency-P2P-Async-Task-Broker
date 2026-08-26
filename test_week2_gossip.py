@@ -1,28 +1,28 @@
 import pytest
 import time
-from meshweaver.monitoring import ResourceStatus
-from meshweaver.gossip import GossipManager, GossipMessageBuilder
+from meshweaver.gossip import GossipManager
 
-def test_peer_load_table_ingestion():
-    manager = GossipManager(node_id="Node-A")
-    
-    # Fake gossip update from Node-B
-    status_b = ResourceStatus(node_id="Node-B", cpu_percent=25.0, ram_percent=60.0, timestamp=time.time())
-    msg = GossipMessageBuilder.build_resource_message(status_b)
-    
-    manager.process_incoming_gossip(msg)
-    
-    assert "Node-B" in manager.peer_load_table
-    assert manager.peer_load_table["Node-B"].cpu_percent == 25.0
 
-def test_stale_peer_cleanup():
-    manager = GossipManager(node_id="Node-A", ttl_seconds=2.0)
+def test_gossip_ingestion_and_stale_cleanup():
+    mgr = GossipManager("node-main", ttl=1.0)
     
-    # Old/stale entry (> 2.0s old)
-    old_status = ResourceStatus(node_id="Node-Dead", cpu_percent=10.0, ram_percent=20.0, timestamp=time.time() - 5.0)
-    manager.peer_load_table["Node-Dead"] = old_status
+    # 1. Simulate incoming gossip from remote node
+    msg = {
+        "type": "GOSSIP_RESOURCE_UPDATE",
+        "data": {
+            "node_id": "node-peer-1",
+            "cpu_percent": 25.0,
+            "ram_percent": 60.0,
+            "timestamp": time.time()
+        }
+    }
+    
+    mgr.handle_incoming_gossip(msg)
+    assert "node-peer-1" in mgr.peer_table
+    assert mgr.peer_table["node-peer-1"]["cpu_percent"] == 25.0
 
-    # Trigger TTL cleanup
-    manager.clean_stale_entries()
+    # 2. Simulate stale timestamp and cleanup
+    mgr.peer_table["node-peer-1"]["timestamp"] = time.time() - 2.0
+    mgr.cleanup_stale_peers()
     
-    assert "Node-Dead" not in manager.peer_load_table
+    assert "node-peer-1" not in mgr.peer_table
