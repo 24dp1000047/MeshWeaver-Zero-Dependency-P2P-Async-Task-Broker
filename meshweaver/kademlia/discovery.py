@@ -11,6 +11,14 @@ This is one round of the Kademlia iterative node-lookup directed at the
 joining node's own ID — the standard mechanism for populating the routing
 table after bootstrap.
 
+Routing-table updates
+---------------------
+Every time a seed contact responds successfully its entry in the routing
+table is refreshed (moved to the most-recently-seen tail of its k-bucket).
+Newly discovered contacts are added to the routing table through
+:meth:`~meshweaver.kademlia.peer_store.PeerStore.add_or_update`.  Contacts
+whose k-bucket is full are silently dropped (standard Kademlia eviction).
+
 Reuses
 ------
 - :class:`~meshweaver.kademlia.rpc.FindNodeHandler` — FIND_NODE request /
@@ -99,8 +107,10 @@ class PeerDiscovery:
 
         1. Obtain its transport callable via ``send_recv_for(contact)``.
         2. Send ``FIND_NODE(self_id_hex)`` to that contact.
-        3. Parse the ``FOUND_NODES`` reply into :class:`KademliaContact` objects.
-        4. For each returned contact that is **not** already in the peer store,
+        3. **Refresh the seed contact** in the routing table — it responded,
+           so we update its last-seen position in its k-bucket.
+        4. Parse the ``FOUND_NODES`` reply into :class:`KademliaContact` objects.
+        5. For each returned contact that is **not** already in the peer store,
            call :meth:`~meshweaver.kademlia.peer_store.PeerStore.add_or_update`.
 
         Contacts that fail to respond (transport raises) or return a malformed
@@ -144,6 +154,21 @@ class PeerDiscovery:
             except Exception:
                 # Unreachable peer or malformed reply — skip gracefully.
                 continue
+
+            # -----------------------------------------------------------------
+            # The seed contact responded — refresh it in the routing table so
+            # it is moved to the most-recently-seen (tail) position in its
+            # k-bucket.  This is a no-op if the seed is the local node itself.
+            # -----------------------------------------------------------------
+            if seed_contact.node_id.hex() != self._local_id_hex:
+                try:
+                    self._peer_store.add_or_update(
+                        seed_contact.node_id,
+                        seed_contact.host,
+                        seed_contact.port,
+                    )
+                except ValueError:
+                    pass  # Seed equals local node — ignore.
 
             for contact in discovered:
                 # Skip the local node itself.

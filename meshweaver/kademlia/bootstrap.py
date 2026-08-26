@@ -8,7 +8,8 @@ join sequence follows the Kademlia paper:
     1. **PING** the bootstrap peer to confirm it is reachable.
     2. **FIND_NODE(self)** — ask the bootstrap peer for the *k* contacts it
        knows that are closest to the new node's own ID.
-    3. **Store** every returned contact in the local :class:`PeerStore`.
+    3. **Store** every returned contact in the local :class:`PeerStore`,
+       including the bootstrap peer itself (it responded, so it is live).
 
 All network I/O is injected through a ``send_recv`` callable so the module
 remains socket-free and fully testable without real network connections.
@@ -113,6 +114,7 @@ class BootstrapClient:
         bootstrap_host: str,
         bootstrap_port: int,
         send_recv: Callable[[bytes], bytes],
+        bootstrap_node_id: Optional[bytes] = None,
     ) -> List[KademliaContact]:
         """Execute the Kademlia join sequence against a bootstrap peer.
 
@@ -123,30 +125,40 @@ class BootstrapClient:
            PONG.
         2. Send ``FIND_NODE(self)`` — ask the bootstrap peer for contacts
            closest to the joining node's own ID.
-        3. For every contact returned, call
+        3. Add the **bootstrap peer itself** to the local routing table /
+           peer store — it responded, so it is a live, known peer.
+        4. For every contact returned in the FOUND_NODES reply, call
            :meth:`~meshweaver.kademlia.peer_store.PeerStore.add_or_update`
            so they are stored in the local routing table / peer store.
-        4. Return the list of contacts that were successfully stored.
+        5. Return the list of contacts that were successfully stored
+           (including the bootstrap peer if *bootstrap_node_id* was given).
 
         Parameters
         ----------
         bootstrap_host:
-            Hostname or IP address of the bootstrap peer (informational;
-            not used for I/O here — *send_recv* handles delivery).
+            Hostname or IP address of the bootstrap peer.
         bootstrap_port:
-            Port of the bootstrap peer (informational; same rationale).
+            Port of the bootstrap peer.
         send_recv:
             A callable ``(encoded_request: bytes) -> bytes`` that delivers
             a request to the bootstrap peer and returns the raw reply.
             For real networking this wraps a socket send/receive; in tests
             it can be an in-process function.
+        bootstrap_node_id:
+            Optional raw 32-byte node ID of the bootstrap peer.  When
+            provided, the bootstrap peer is added to the local routing table
+            after a successful PING so that it is immediately reachable for
+            future lookups.  If ``None``, the bootstrap peer is not added
+            (backwards-compatible behaviour; used when the ID is unknown).
 
         Returns
         -------
         list[KademliaContact]
             The contacts received from the bootstrap peer that were
             successfully stored in the local peer store (contacts whose
-            k-bucket was already full are excluded).
+            k-bucket was already full are excluded).  The bootstrap peer
+            itself is included in this list when *bootstrap_node_id* is
+            provided and it was accepted into its k-bucket.
 
         Raises
         ------
@@ -182,9 +194,28 @@ class BootstrapClient:
             ) from exc
 
         # -----------------------------------------------------------------
-        # Step 3: Store returned contacts in the local peer store
+        # Step 3: Record the bootstrap peer itself (it is live — it replied)
         # -----------------------------------------------------------------
         stored: List[KademliaContact] = []
+        if bootstrap_node_id is not None:
+            try:
+                bs_contact_accepted = self._peer_store.add_or_update(
+                    bootstrap_node_id, bootstrap_host, bootstrap_port
+                )
+                if bs_contact_accepted:
+                    stored.append(
+                        self._peer_store.routing_table.get_contact(
+                            bootstrap_node_id
+                        )
+                    )
+            except ValueError:
+                # bootstrap_node_id == local node ID — should never happen
+                # in practice but we guard it defensively.
+                pass
+
+        # -----------------------------------------------------------------
+        # Step 4: Store returned contacts in the local peer store
+        # -----------------------------------------------------------------
         for contact in contacts:
             try:
                 accepted = self._peer_store.add_or_update(
