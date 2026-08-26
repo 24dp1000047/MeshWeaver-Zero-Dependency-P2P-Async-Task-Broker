@@ -1,109 +1,97 @@
 import time
+import asyncio
 import logging
 from enum import Enum
-from typing import Dict, Optional, Callable, List
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("meshweaver.heartbeat")
 
 
 class NodeState(Enum):
-    """[Week 3 Track] Node liveness states"""
     ALIVE = "ALIVE"
     SUSPECTED = "SUSPECTED"
     OFFLINE = "OFFLINE"
 
 
 class HeartbeatManager:
-    """
-    [Week 3 Track - Sahil]
-    Tracks heartbeats, manages node liveness state (ALIVE, SUSPECTED, OFFLINE).
-    """
-    def __init__(
-        self, 
-        node_id: str, 
-        heartbeat_interval: float = 2.0, 
-        suspect_timeout: float = 6.0, 
-        offline_timeout: float = 10.0
-    ):
+    def __init__(self, node_id, heartbeat_interval=2.0, suspect_timeout=6.0, offline_timeout=10.0):
         self.node_id = node_id
-        self.heartbeat_interval = heartbeat_interval
-        self.suspect_timeout = suspect_timeout
-        self.offline_timeout = offline_timeout
+        self.interval = heartbeat_interval
+        self.suspect_t = suspect_timeout
+        self.offline_t = offline_timeout
         
-        # {peer_id: last_seen_timestamp}
-        self.last_seen: Dict[str, float] = {}
-        # {peer_id: NodeState}
-        self.peer_states: Dict[str, NodeState] = {}
+        self.last_seen = {}
+        self.peer_states = {}
         
-        self._is_running = False
-        self.on_node_offline_callbacks: List[Callable[[str], None]] = []
-        self.network_send_cb: Optional[Callable[[dict], None]] = None
+        self.active = False
+        self.offline_cb_list = []
+        self.net_send = None
 
-    def register_network_callback(self, callback: Callable[[dict], None]):
-        self.network_send_cb = callback
+    def register_network_callback(self, cb):
+        self.net_send = cb
 
-    def register_offline_callback(self, callback: Callable[[str], None]):
-        self.on_node_offline_callbacks.append(callback)  
-        def process_incoming_heartbeat(self, message: dict):
-        """Receives heartbeat ping from peer node and updates timestamp."""
-        if message.get("message_type") != "HEARTBEAT_PING":
+    def register_offline_callback(self, cb):
+        self.offline_cb_list.append(cb)
+
+    def process_incoming_heartbeat(self, msg):
+        if not isinstance(msg, dict) or msg.get("message_type") != "HEARTBEAT_PING":
             return
 
-        sender_id = message.get("sender_id")
-        if not sender_id or sender_id == self.node_id:
+        sender = msg.get("sender_id")
+        if not sender or sender == self.node_id:
             return
 
-        current_time = time.time()
-        self.last_seen[sender_id] = current_time
+        now = time.time()
+        self.last_seen[sender] = now
         
-        prev_state = self.peer_states.get(sender_id)
-        self.peer_states[sender_id] = NodeState.ALIVE
+        prev = self.peer_states.get(sender)
+        self.peer_states[sender] = NodeState.ALIVE
         
-        if prev_state and prev_state != NodeState.ALIVE:
-            logging.info(f"[Week 3] Node [{sender_id}] recovered back to ALIVE.")
+        if prev and prev != NodeState.ALIVE:
+            logger.info(f"Node {sender} recovered to ALIVE state")
 
     def check_node_health(self):
-        """Audits status of all peers based on missed heartbeats."""
-        current_time = time.time()
+        now = time.time()
         
-        for peer_id, last_ts in list(self.last_seen.items()):
-            elapsed = current_time - last_ts
-            current_state = self.peer_states.get(peer_id, NodeState.ALIVE)
+        for peer, ts in list(self.last_seen.items()):
+            delta = now - ts
+            st = self.peer_states.get(peer, NodeState.ALIVE)
 
-            if elapsed >= self.offline_timeout:
-                if current_state != NodeState.OFFLINE:
-                    self.peer_states[peer_id] = NodeState.OFFLINE
-                    logging.error(f"[Week 3] Node [{peer_id}] marked OFFLINE (No heartbeat for {elapsed:.1f}s).")
+            if delta >= self.offline_t:
+                if st != NodeState.OFFLINE:
+                    self.peer_states[peer] = NodeState.OFFLINE
+                    logger.error(f"Node {peer} unreachable. Marking OFFLINE after {round(delta, 1)}s")
                     
-                    for cb in self.on_node_offline_callbacks:
-                        cb(peer_id)
+                    for fn in self.offline_cb_list:
+                        try:
+                            fn(peer)
+                        except Exception as err:
+                            logger.exception(f"Callback error for node {peer}: {err}")
 
-            elif elapsed >= self.suspect_timeout:
-                if current_state == NodeState.ALIVE:
-                    self.peer_states[peer_id] = NodeState.SUSPECTED
-                    logging.warning(f"[Week 3] Node [{peer_id}] marked SUSPECTED (Missed heartbeats for {elapsed:.1f}s).")
+            elif delta >= self.suspect_t:
+                if st == NodeState.ALIVE:
+                    self.peer_states[peer] = NodeState.SUSPECTED
+                    logger.warning(f"Missed heartbeats from {peer}. State changed to SUSPECTED")
 
-async def start_heartbeat_loop(self):
-        self._is_running = True
-        logging.info(f"[Week 3] Started Heartbeat Monitor for [{self.node_id}]")
+    async def start_heartbeat_loop(self):
+        self.active = True
+        logger.info(f"Heartbeat loop started for {self.node_id}")
 
-        while self._is_running:
+        while self.active:
             try:
-                hb_message = {
-                    "message_type": "HEARTBEAT_PING",
-                    "sender_id": self.node_id,
-                    "timestamp": time.time()
-                }
-                if self.network_send_cb:
-                    self.network_send_cb(hb_message)
+                if self.net_send:
+                    payload = {
+                        "message_type": "HEARTBEAT_PING",
+                        "sender_id": self.node_id,
+                        "timestamp": time.time()
+                    }
+                    self.net_send(payload)
 
                 self.check_node_health()
-
             except Exception as e:
-                logging.error(f"Error in heartbeat loop: {e}")
+                logger.error(f"Unexpected error in heartbeat loop: {e}")
 
-            await asyncio.sleep(self.heartbeat_interval)
+            await asyncio.sleep(self.interval)
 
     def stop(self):
-        self._is_running = False
-        logging.info(f"[Week 3] Stopped Heartbeat Monitor for [{self.node_id}]")
+        self.active = False
+        logger.info(f"Heartbeat loop stopped for {self.node_id}")
