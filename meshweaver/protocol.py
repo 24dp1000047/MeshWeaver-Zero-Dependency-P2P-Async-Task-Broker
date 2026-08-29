@@ -18,14 +18,23 @@ FIND_NODE / FOUND_NODES
 * FIND_NODE   — request the *k* closest known contacts to a target node ID.
 * FOUND_NODES — response carrying a list of contacts.
 
+TASK_REQUEST
+------------
+* TASK_REQUEST — a signed task-execution request issued by a node.  Carries
+                 ``sender_id``, a ``task_id`` (opaque string), an arbitrary
+                 ``payload`` (dict), and — after signing — a ``signature``
+                 field appended by :mod:`meshweaver.kademlia.signer`.
+
 Public API
 ----------
 - MSG_PING, MSG_PONG, MSG_FIND_NODE, MSG_FOUND_NODES  — message type constants
+- MSG_TASK_REQUEST                                     — task request type
 - create_message(message_type, sender_id)              — generic helper (legacy)
 - build_ping(sender_id_hex, token)                     — create a PING dict
 - build_pong(sender_id_hex, token)                     — create a PONG dict
 - build_find_node(sender_id_hex, target_id_hex)        — create FIND_NODE dict
 - build_found_nodes(sender_id_hex, target_id_hex, contacts) — create response
+- build_task_request(sender_id_hex, task_id, payload)  — create TASK_REQUEST
 - encode_message(message)                              — dict → UTF-8 bytes
 - decode_message(data)                                 — UTF-8 bytes → dict
 - validate_message(message, expected_type)             — basic structural check
@@ -41,6 +50,7 @@ MSG_PING = "PING"
 MSG_PONG = "PONG"
 MSG_FIND_NODE = "FIND_NODE"
 MSG_FOUND_NODES = "FOUND_NODES"
+MSG_TASK_REQUEST = "TASK_REQUEST"
 
 # ---------------------------------------------------------------------------
 # Legacy helper (preserved for backwards-compatibility with earlier commits)
@@ -184,6 +194,61 @@ def build_found_nodes(
         "sender_id": sender_id_hex,
         "target_id": target_id_hex,
         "contacts": contacts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# TASK_REQUEST builder
+# ---------------------------------------------------------------------------
+
+
+def build_task_request(
+    sender_id_hex: str,
+    task_id: str,
+    payload: dict,
+) -> dict:
+    """Return an **unsigned** TASK_REQUEST message dict.
+
+    The returned dict contains ``type``, ``sender_id``, ``task_id``, and
+    ``payload``.  It does **not** include a ``signature`` field — that is
+    added separately by :func:`meshweaver.kademlia.signer.TaskSigner.sign_request`
+    so that the canonical signing payload is always computed from a clean,
+    signature-free dict.
+
+    Parameters
+    ----------
+    sender_id_hex:
+        64-character hex-encoded node ID of the requesting node.
+    task_id:
+        An opaque identifier for the task (e.g. a UUID string).  Must be
+        non-empty.
+    payload:
+        Arbitrary JSON-serialisable dict carrying task parameters.
+
+    Returns
+    -------
+    dict
+        ``{"type": "TASK_REQUEST", "sender_id": ...,
+        "task_id": ..., "payload": {...}}``
+
+    Raises
+    ------
+    ValueError
+        If *sender_id_hex* or *task_id* is empty.
+    TypeError
+        If *payload* is not a dict.
+    """
+    if not sender_id_hex:
+        raise ValueError("sender_id_hex must not be empty")
+    if not task_id:
+        raise ValueError("task_id must not be empty")
+    if not isinstance(payload, dict):
+        raise TypeError("payload must be a dict")
+    return {
+        "type": MSG_TASK_REQUEST,
+        "sender_id": sender_id_hex,
+        "task_id": task_id,
+        "payload": payload,
     }
 
 
