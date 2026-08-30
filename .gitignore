@@ -1,1 +1,8 @@
 __pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+venv/
+certs/*.key
+certs/*.csr
+certs/*.srl
