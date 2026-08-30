@@ -1,214 +1,107 @@
+import hashlib
+import hmac
 import json
-import uuid
 import time
+import uuid
+from typing import Any, Dict, Optional
 
-
-# =========================================================
-# Message Types
-# =========================================================
-
-# Existing Week 1–2 message types
 PING = "PING"
 PONG = "PONG"
-
-# Week 3 routing message types
 TASK_ROUTE_REQUEST = "TASK_ROUTE_REQUEST"
 ROUTE_CANDIDATE_RESPONSE = "ROUTE_CANDIDATE_RESPONSE"
 ROUTE_DECISION = "ROUTE_DECISION"
+TASK_SUBMIT = "TASK_SUBMIT"
+TASK_RESULT = "TASK_RESULT"
+TASK_ERROR = "TASK_ERROR"
+TASK_REASSIGN = "TASK_REASSIGN"
+HEARTBEAT = "HEARTBEAT"
+HEARTBEAT_ACK = "HEARTBEAT_ACK"
 
 
-# =========================================================
-# Common Message
-# =========================================================
-
-def create_message(
-    message_type,
-    sender_id,
-    request_id=None,
-    payload=None
-):
-    """
-    Create a common MeshWeaver protocol message.
-
-    Parameters:
-        message_type:
-            Type of message such as PING, PONG,
-            TASK_ROUTE_REQUEST, etc.
-
-        sender_id:
-            ID of the node sending the message.
-
-        request_id:
-            Unique ID used to correlate a request
-            with its response.
-
-        payload:
-            Optional message-specific data.
-    """
-
-    message = {
-        "type": message_type,
-        "sender_id": sender_id
-    }
-
+def create_message(message_type: str, sender_id: str, request_id: Optional[str] = None, payload: Any = None) -> Dict[str, Any]:
+    if not message_type or not sender_id:
+        raise ValueError("message_type and sender_id are required")
+    message = {"type": message_type, "sender_id": sender_id}
     if request_id is not None:
         message["request_id"] = request_id
-
     if payload is not None:
         message["payload"] = payload
-
     return message
 
 
-# =========================================================
-# Generic Request
-# =========================================================
-
-def create_request(
-    message_type,
-    sender_id,
-    payload=None
-):
-    """
-    Create a request message with a unique request ID.
-
-    The request ID allows the networking layer to match
-    the response with the original request.
-    """
-
-    request_id = str(uuid.uuid4())
-
-    return create_message(
-        message_type=message_type,
-        sender_id=sender_id,
-        request_id=request_id,
-        payload=payload
-    )
+def create_request(message_type: str, sender_id: str, payload: Any = None) -> Dict[str, Any]:
+    return create_message(message_type, sender_id, str(uuid.uuid4()), payload)
 
 
-# =========================================================
-# TASK ROUTE REQUEST
-# =========================================================
-
-def create_task_route_request(
-    sender_id,
-    task_id,
-    candidate_node=None,
-    cpu_load=None
-):
-    """
-    Create a task-routing request.
-
-    Routing metadata includes:
-
-        task_id
-        source_node
-        candidate_node
-        cpu_load
-        timestamp
-    """
-
+def create_task_route_request(sender_id: str, task_id: str, candidate_node: Optional[str] = None,
+                              cpu_load: Optional[float] = None, candidates=None) -> Dict[str, Any]:
     payload = {
         "task_id": task_id,
         "source_node": sender_id,
         "candidate_node": candidate_node,
         "cpu_load": cpu_load,
-        "timestamp": time.time()
+        "candidates": list(candidates or []),
+        "timestamp": time.time(),
     }
-
-    return create_request(
-        message_type=TASK_ROUTE_REQUEST,
-        sender_id=sender_id,
-        payload=payload
-    )
+    return create_request(TASK_ROUTE_REQUEST, sender_id, payload)
 
 
-# =========================================================
-# ROUTE CANDIDATE RESPONSE
-# =========================================================
-
-def create_route_candidate_response(
-    sender_id,
-    request_id,
-    task_id,
-    candidate_node,
-    cpu_load
-):
-    """
-    Create a candidate-node response.
-
-    The request_id from the original routing request
-    is preserved so the sender can correlate this
-    response with the correct request.
-    """
-
-    payload = {
-        "task_id": task_id,
-        "source_node": sender_id,
-        "candidate_node": candidate_node,
-        "cpu_load": cpu_load,
-        "timestamp": time.time()
-    }
-
-    return create_message(
-        message_type=ROUTE_CANDIDATE_RESPONSE,
-        sender_id=sender_id,
-        request_id=request_id,
-        payload=payload
-    )
+def create_route_candidate_response(sender_id: str, request_id: str, task_id: str,
+                                    candidate_node: str, cpu_load: float) -> Dict[str, Any]:
+    return create_message(ROUTE_CANDIDATE_RESPONSE, sender_id, request_id, {
+        "task_id": task_id, "source_node": sender_id, "candidate_node": candidate_node,
+        "cpu_load": float(cpu_load), "timestamp": time.time(),
+    })
 
 
-# =========================================================
-# ROUTE DECISION
-# =========================================================
-
-def create_route_decision(
-    sender_id,
-    task_id,
-    candidate_node,
-    cpu_load=None
-):
-    """
-    Create a routing decision message.
-
-    This message indicates the node selected for
-    execution of a particular task.
-    """
-
-    payload = {
-        "task_id": task_id,
-        "source_node": sender_id,
-        "candidate_node": candidate_node,
-        "cpu_load": cpu_load,
-        "timestamp": time.time()
-    }
-
-    return create_message(
-        message_type=ROUTE_DECISION,
-        sender_id=sender_id,
-        payload=payload
-    )
+def create_route_decision(sender_id: str, task_id: str, candidate_node: str,
+                          cpu_load: Optional[float] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+    return create_message(ROUTE_DECISION, sender_id, request_id, {
+        "task_id": task_id, "source_node": sender_id, "candidate_node": candidate_node,
+        "cpu_load": cpu_load, "timestamp": time.time(),
+    })
 
 
-# =========================================================
-# Message Encoding
-# =========================================================
-
-def encode_message(message):
-    """
-    Convert a Python dictionary into UTF-8 encoded JSON.
-    """
-
-    return json.dumps(message).encode("utf-8")
+def encode_message(message: Dict[str, Any]) -> bytes:
+    return json.dumps(message, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
-# =========================================================
-# Message Decoding
-# =========================================================
+def decode_message(data: bytes) -> Dict[str, Any]:
+    if not isinstance(data, (bytes, bytearray)):
+        raise TypeError("message data must be bytes")
+    message = json.loads(bytes(data).decode("utf-8"))
+    validate_message(message)
+    return message
 
-def decode_message(data):
-    """
-    Convert UTF-8 encoded JSON bytes into a Python dictionary.
-    """
 
-    return json.loads(data.decode("utf-8"))
+def validate_message(message: Dict[str, Any]) -> None:
+    if not isinstance(message, dict):
+        raise ValueError("message must be an object")
+    if not isinstance(message.get("type"), str) or not message.get("type"):
+        raise ValueError("message.type is required")
+    if not isinstance(message.get("sender_id"), str) or not message.get("sender_id"):
+        raise ValueError("message.sender_id is required")
+    if "request_id" in message and not isinstance(message["request_id"], str):
+        raise ValueError("request_id must be a string")
+    if "payload" in message and not isinstance(message["payload"], dict):
+        raise ValueError("payload must be an object")
+
+
+def canonical_bytes(message: Dict[str, Any]) -> bytes:
+    unsigned = dict(message)
+    unsigned.pop("signature", None)
+    return json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def sign_message(message: Dict[str, Any], secret: bytes) -> Dict[str, Any]:
+    signed = dict(message)
+    signed["signature"] = hmac.new(secret, canonical_bytes(message), hashlib.sha256).hexdigest()
+    return signed
+
+
+def verify_message_signature(message: Dict[str, Any], secret: bytes) -> bool:
+    signature = message.get("signature")
+    if not isinstance(signature, str):
+        return False
+    expected = hmac.new(secret, canonical_bytes(message), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
