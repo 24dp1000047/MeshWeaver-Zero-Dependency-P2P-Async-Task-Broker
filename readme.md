@@ -172,3 +172,23 @@ The following features are planned for later stages and are not part of the curr
 - TLS/SSL communication
 - Cryptographic task signatures
 - Rich CLI dashboard
+
+
+ ## 📊 Sahil — Gossip & Monitoring Track Progress
+
+### Completed Features (Week 1 & Week 2)
+- **Resource Monitoring:** System CPU and RAM metrics collection using `psutil` inside `monitoring.py`.
+- **Resource Data Schema:** Standardized `ResourceStatus` dataclass with JSON serialization/deserialization.
+- **Background Async Loop:** Non-blocking `BackgroundMonitorLoop` collecting system metrics periodically.
+- **Gossip Protocol & Load Table:** Periodic (~5s) broadcast management via `GossipManager` in `gossip.py`.
+- **Peer Load Tracking:** Maintenance of local `peer_load_table` mapping active peers to their latest resource metrics.
+- **Stale Node Cleanup:** TTL-based expiration for inactive peers (auto-removal if update > TTL threshold).
+- **Network Integration:** Callback hook `register_network_callback()` connecting gossip manager to network transport.
+
+### Running Track Demos
+```bash
+# Week 1 Demo (Local Resource Collection)
+python examples/week1_demo.py
+
+# Week 2 Demo (Multi-Node Gossip & Peer Load Table Exchange)
+python examples/week2_gossip_demo.py
